@@ -1,0 +1,6 @@
+
+*/2  * * * *     root   /usr/local/bin/munin_daemon update
+*/15 * * * *     root   /usr/local/bin/munin_daemon limits
+0 */2 * * *     root   /usr/local/bin/munin_daemon draw
+0 */6 * * *     root   /usr/local/bin/munin_daemon html
+0 */1 * * *     root   /usr/local/bin/restart-internet

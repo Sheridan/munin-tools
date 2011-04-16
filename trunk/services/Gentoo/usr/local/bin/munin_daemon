@@ -1,0 +1,116 @@
+#!/bin/bash
+
+. /etc/munin/munin_daemon.conf
+
+log_to_logger=yes
+global_graph_opts=""
+global_html_opts=""
+global_limits_opts=""
+global_update_opts=""
+
+function initialize()
+{
+    if [ "$debug" == "yes" ]
+    then
+	global_graph_opts="--debug"
+	global_html_opts="--debug"
+	global_limits_opts="--debug"
+	global_update_opts="--debug"
+    else
+	global_graph_opts="--nodebug"
+	global_html_opts="--nodebug"
+	global_limits_opts="--nodebug"
+	global_update_opts="--nodebug"
+    fi
+}
+
+function do_log() {
+    log_type=$1
+    shift
+    message=$@
+    if [ "$log_to_logger" == "yes" ]
+    then
+	logger -p local4.${log_type} -t munin $message
+    else
+	echo "[${log_type}] ${message}"
+    fi
+}
+
+function do_update() {
+    local start=0
+    if [ "$debug" == "yes" ]
+    then
+	start=`date +%s`
+    fi
+    do_log "info" "Update started"
+    beep -f 500 -l 100
+    nice --adjustment=$update_nice sudo -u $munin_user /usr/libexec/munin/munin-update ${global_update_opts} >> /var/log/munin/munin_update_daemon 2>&1
+    beep -f 500 -l 100 -D 100 -n -f 500 -l 100
+    if [ "$debug" == "yes" ]
+    then
+	do_log "debug" "Update done. Elapsed time: $( secunds_to_time $((`date +%s` - $start)) )"
+    fi
+}
+
+function do_limits() {
+    local start=0
+    if [ "$debug" == "yes" ]
+    then
+	start=`date +%s`
+    fi
+    do_log "info" "Limits started"
+    nice --adjustment=$limits_nice sudo -u $munin_user /usr/libexec/munin/munin-limits ${global_limits_opts} >> /var/log/munin/munin_limits_daemon 2>&1
+    if [ "$debug" == "yes" ]
+    then
+	do_log "debug" "Update done. Elapsed time: $( secunds_to_time $((`date +%s` - $start)) )"
+    fi
+}
+
+function do_draw() {
+    local options=$@
+    local start=0
+    if [ "$debug" == "yes" ]
+    then
+	start=`date +%s`
+    fi
+    do_log "info" "Draw started"
+    beep -f 800 -l 100
+    nice --adjustment=$graph_nice sudo -u $munin_user /usr/libexec/munin/munin-graph ${global_graph_opts} ${options} 2>&1 | while read line; do [ x"$line" = x"*** attempt to put segment in horiz list twice" ] && continue; echo $line >> /var/log/munin/munin_graph_daemon; done;
+    beep -f 800 -l 100 -D 100 -n -f 800 -l 100
+    if [ "$debug" == "yes" ]
+    then
+        do_log "debug" "Draw done. Elapsed time: $( secunds_to_time $((`date +%s` - $start)) )"
+    fi
+}
+
+function do_html() {
+    local start=0
+    if [ "$debug" == "yes" ]
+    then
+	start=`date +%s`
+    fi
+    do_log "info" "Html updating started"
+    nice --adjustment=$html_nice sudo -u $munin_user /usr/libexec/munin/munin-html ${global_html_opts} >> /var/log/munin/munin_html_daemon 2>&1
+    if [ "$debug" == "yes" ]
+    then
+        do_log "debug" "html update done. Elapsed time: $( secunds_to_time $((`date +%s` - $start)) )"
+    fi
+}
+
+initialize
+case $1 in
+  draw )
+    do_draw "--cron --lazy"
+  ;;
+  update )
+    do_update
+  ;;
+  html )
+    do_html
+  ;;
+  limits )
+    do_limits
+  ;;
+esac
+exit 0
+

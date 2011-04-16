@@ -1,0 +1,458 @@
+#!/usr/bin/perl -w 
+
+use strict;
+use warnings;
+use Munin::Plugin;
+use Data::Dumper;
+
+# 1: Higher raw value is better; 0: none; -1: Lower raw value is better
+my $attributes = 
+{
+    1 => [ 0, 'Read Error Rate'                , 'Stores data related to the rate of hardware read errors that occurred when reading data from a disk surface. The raw value has different structure for different vendors and is often not meaningful as a decimal number'],
+    2 => [ 1, 'Throughput Performance'         , 'Overall (general) throughput performance of a hard disk drive. If the value of this attribute is decreasing there is a high probability that there is a problem with the disk.'],
+    3 => [-1, 'Spin-Up Time'                   , 'Average time of spindle spin up (from zero RPM to fully operational [millisecs]).'],
+    4 => [ 0, 'Start/Stop Count'               , 'A tally of spindle start/stop cycles. The spindle turns on, and hence the count is increased, both when the hard disk is turned on after having before been turned entirely off (disconnected from power source) and when the hard disk returns from having previously been put to sleep mode.'],
+    5 => [-1, 'Reallocated Sectors Count'      , 'Count of reallocated sectors. When the hard drive finds a read/write/verification error, it marks this sector as "reallocated" and transfers data to a special reserved area (spare area). This process is also known as remapping, and "reallocated" sectors are called remaps. Unfortunately, on modern operating systems, such as Windows XP and onwards, "bad blocks" cannot be found while testing the surface, as this feature was removed. However, 3rd-party applications such as "HD Tune" can reveal bad sectors across the entire surface, even on partitions that are hidden. Also, as the count of reallocated sectors increases, the read/write speed tends to decrease, unless the bad sectors are manually repositioned to a hidden partition, although the boot sector is always at the start of the disk, so if damage is in that area, the drive is only useful as a redundant backup drive. The raw value normally represents a count of the count of bad sectors that have been found and remapped. Thus, the higher the attribute value, the more sectors the drive has had to reallocate.'],
+    6 => [ 0, 'Read Channel Margin'            , 'Margin of a channel while reading data. The function of this attribute is not specified.'],
+    7 => [ 0, 'Seek Error Rate'                , '(Vendor specific raw value.) Rate of seek errors of the magnetic heads. If there is a partial failure in the mechanical positioning system, then seek errors will arise. Such a failure may be due to numerous factors, such as damage to a servo, or thermal widening of the hard disk. The raw value has different structure for different vendors and is often not meaningful as a decimal number.'],
+    8 => [ 1, 'Seek Time Performance'          , 'Average performance of seek operations of the magnetic heads. If this attribute is decreasing, it is a sign of problems in the mechanical subsystem.'],
+    9 => [-1, 'Power-On Hours'                 , 'Count of hours in power-on state. The raw value of this attribute shows total count of hours (or minutes, or seconds, depending on manufacturer) in power-on state.'],
+   10 => [-1, 'Spin Retry Count'               , 'Count of retry of spin start attempts. This attribute stores a total count of the spin start attempts to reach the fully operational speed (under the condition that the first attempt was unsuccessful). An increase of this attribute value is a sign of problems in the hard disk mechanical subsystem.'],
+   11 => [-1, 'Recalibration Retries'          , 'This attribute indicates the count that recalibration was requested (under the condition that the first attempt was unsuccessful). An increase of this attribute value is a sign of problems in the hard disk mechanical subsystem.'],
+   12 => [ 0, 'Power Cycle Count'              , 'This attribute indicates the count of full hard disk power on/off cycles.'],
+   13 => [-1, 'Soft Read Error Rate'           , 'Uncorrected read errors reported to the operating system.'],
+  183 => [ 0, 'SATA Downshift Error Count'     , 'Western Digital and Samsung attribute.'],
+  184 => [-1, 'End-to-End error'               , 'This attribute is a part of HP`s SMART IV technology and it means that after transferring through the cache RAM data buffer the parity data between the host and the hard drive did not match.'],
+  185 => [ 0, 'Head Stability'                 , 'Western Digital attribute.'],
+  186 => [ 0, 'Induced Op-Vibration Detection' , 'Western Digital attribute.'],
+  187 => [-1, 'Reported Uncorrectable Errors'  , 'The count of errors that could not be recovered using hardware ECC (see attribute 195).'],
+  188 => [-1, 'Command Timeout'                , 'The count of aborted operations due to HDD timeout. Normally this attribute value should be equal to zero and if the value is far above zero, then most likely there will be some serious problems with power supply or an oxidized data cable.'],
+  189 => [-1, 'High Fly Writes'                , 'HDD producers implement a Fly Height Monitor that attempts to provide additional protections for write operations by detecting when a recording head is flying outside its normal operating range. If an unsafe fly height condition is encountered, the write process is stopped, and the information is rewritten or reallocated to a safe region of the hard drive. This attribute indicates the count of these errors detected over the lifetime of the drive. This feature is implemented in most modern Seagate drives and some of Western Digital’s drives, beginning with the WD Enterprise WDE18300 and WDE9180 Ultra2 SCSI hard drives, and will be included on all future WD Enterprise products.'],
+  190 => [-1, 'Airflow Temperature'            , 'Airflow temperature on Western Digital HDs (Same as temp, but current value is 50 less for some models. Marked as obsolete.)'],
+# 190 => [-1, 'Temperature Difference from 100',  'Value is equal to (100−temp. °C), allowing manufacturer to set a minimum threshold which corresponds to a maximum temperature.'],
+  191 => [-1, 'G-sense error rate'             , 'The count of errors resulting from externally-induced shock & vibration.'],
+  192 => [-1, 'Power-off Retract Count'        , 'Emergency Retract Cycle count (Fujitsu). Count of times the heads are loaded off the media. Heads can be unloaded without actually powering off.'],
+  193 => [-1, 'Load Cycle Count'               , 'Load/Unload Cycle Count (Fujitsu). Count of load/unload cycles into head landing zone position. The typical lifetime rating for laptop (2.5-in) hard drives is 300,000 to 600,000 load cycles. Some laptop drives are programmed to unload the heads whenever there has not been any activity for about five seconds. Many Linux installations write to the file system a few times a minute in the background. As a result, there may be 100 or more load cycles per hour, and the load cycle rating may be exceeded in less than a year.'],
+  194 => [-1, 'Temperature'                    , 'Current internal temperature.'],
+  195 => [ 0, 'Hardware ECC Recovered'         , '(Vendor specific raw value.) The raw value has different structure for different vendors and is often not meaningful as a decimal number.'],
+  196 => [-1, 'Reallocation Event Count'       , 'Count of remap operations. The raw value of this attribute shows the total count of attempts to transfer data from reallocated sectors to a spare area. Both successful & unsuccessful attempts are counted.'],
+  197 => [-1, 'Current Pending Sector Count'   , 'Count of "unstable" sectors (waiting to be remapped, because of read errors). If an unstable sector is subsequently written or read successfully, this value is decreased and the sector is not remapped. Read errors on a sector will not remap the sector (since it might be readable later); instead, the drive firmware remembers that the sector needs to be remapped, and remaps it the next time it`s written.'],
+  198 => [-1, 'Uncorrectable Sector Count'     , 'The total count of uncorrectable errors when reading/writing a sector. A rise in the value of this attribute indicates defects of the disk surface and/or problems in the mechanical subsystem. (or Off-Line Scan Uncorrectable Sector Count: Fujitsu)'],
+  199 => [-1, 'UltraDMA CRC Error Count'       , 'The count of errors in data transfer via the interface cable as determined by ICRC (Interface Cyclic Redundancy Check).'],
+  200 => [-1, 'Multi-Zone Error Rate'          , 'The count of errors found when writing a sector. The higher the value, the worse the disk`s mechanical condition is.'],
+# 200 => [-1, 'Write Error Rate (Fujitsu)'     , 'The total count of errors when writing a sector.'],
+  201 => [-1, 'Soft Read Error Rate'           , 'Count of off-track errors.'],
+  202 => [-1, 'Data Address Mark errors'       , 'Count of Data Address Mark errors (or vendor-specific).'],
+  203 => [-1, 'Run Out Cancel'                 , 'Count of ECC errors'],
+  204 => [-1, 'Soft ECC Correction'            , 'Count of errors corrected by software ECC'],
+  205 => [-1, 'Thermal Asperity Rate (TAR)'    , 'Count of errors due to high temperature.'],
+  206 => [ 0, 'Flying Height'                  , 'Height of heads above the disk surface. A flying height that`s too low increases the chances of a head crash while a flying height that`s too high increases the chances of a read/write error.'],
+  207 => [-1, 'Spin High Current'              , 'Amount of surge current used to spin up the drive.'],
+  208 => [ 0, 'Spin Buzz'                      , 'Count of buzz routines needed to spin up the drive due to insufficient power.'],
+  209 => [ 0, 'Offline Seek Performance'       , 'Drive’s seek performance during its internal tests.'],
+  211 => [ 0, 'Vibration During Write'         , 'Vibration During Write'],
+  212 => [ 0, 'Shock During Write'             , 'Shock During Write'],
+  220 => [-1, 'Disk Shift'                     , 'Distance the disk has shifted relative to the spindle (usually due to shock or temperature). Unit of measure is unknown.'],
+  221 => [-1, 'G-Sense Error Rate'             , 'The count of errors resulting from externally-induced shock & vibration.'],
+  222 => [ 0, 'Loaded Hours'                   , 'Time spent operating under data load (movement of magnetic head armature)'],
+  223 => [ 0, 'Load/Unload Retry Count'        , 'Count of times head changes position.'],
+  224 => [-1, 'Load Friction'                  , 'Resistance caused by friction in mechanical parts while operating.'],
+  225 => [-1, 'Load/Unload Cycle Count'        , 'Total count of load cycles'],
+  226 => [ 0, 'Load In-time'                   , 'Total time of loading on the magnetic heads actuator (time not spent in parking area)'],
+  227 => [-1, 'Torque Amplification Count'     , 'Count of attempts to compensate for platter speed variations'],
+  228 => [-1, 'Power-Off Retract Cycle'        , 'The count of times the magnetic armature was retracted automatically as a result of cutting power.'],
+  230 => [ 0, 'GMR Head Amplitude'             , 'Amplitude of "thrashing" (distance of repetitive forward/reverse head motion)'],
+  231 => [-1, 'Temperature'                    , 'Drive Temperature'],
+  240 => [ 0, 'Head Flying Hours'              , 'Time while head is positioning'],
+  240 => [ 0, 'Transfer Error Rate (Fujitsu)'  , 'Count of times the link is reset during a data transfer.'],
+  241 => [ 0, 'Total LBAs Written'             , 'Total count of LBAs written'],
+  242 => [ 0, 'Total LBAs Read'                , 'Total count of LBAs read'],
+  250 => [-1, 'Read Error Retry Rate'          , 'Count of errors while reading from a disk'],
+  254 => [-1, 'Free Fall Protection'           , 'Count of "Free Fall Events" detected']
+};
+
+my $devices;
+my @sorted_devices;
+
+sub exec_smartctl
+{
+  my $parametres = $_[0];
+  return split(/\n/, `smartctl -T verypermissive $parametres`);
+}
+
+sub scan_devices
+{
+  my $sorting = {};
+  for my $line (exec_smartctl('--scan-open'))
+  {
+    next unless ($line =~ m/(opened)/);
+    $line =~ s[(.+?) .*][$1]g;
+    scan_device($line);
+    $sorting->{$devices->{$line}{'munin'}{'fieldname'}} = $line;
+  }
+  for my $device (sort keys %{$sorting})
+  {
+    push(@sorted_devices, $sorting->{$device});
+  }
+}
+
+sub scan_device
+{
+  my $device = $_[0];
+  my $flag = 0;
+  for my $line (exec_smartctl("-i -l scttemp -A $device"))
+  {
+    $devices->{$device}{'smartctl_return'} = $?;
+    if ($line =~ m(^\s*$)) { $flag = 0; next; }
+    if ($flag == 0)
+    {
+      $flag = 1 if ($line =~ m(ID#));
+      $flag = 2 if ($line =~ m(SCT Status Version));
+      $flag = 3 if ($line =~ m(START OF INFORMATION SECTION));
+      next;
+    }
+    if($flag == 1)
+    {
+      # 0-ID, 1-ATTRIBUTE_NAME, 2-FLAG, 3-VALUE, 4-WORST, 5-THRESH, 6-TYPE, 7-UPDATED, 8-WHEN_FAILED, 9-RAW_VALUE
+      my @atts = split(/\s+/, trim($line));
+      $devices->{$device}{'attributes'}{$atts[0]} = calculate_attribute($atts[0], $atts[3], $atts[4], $atts[5], $atts[9], $atts[6]);
+    }
+    elsif ($flag == 2)
+    {
+      if($line =~ m(Current Temperature) ) { $devices->{$device}{'temperatures'}{'current'} = ($line =~ /.*:\s+([-0-9]+).*/g)[0]; }
+      if($line =~ m(Power Cycle Min/Max Temperature)) 
+        { ($devices->{$device}{'temperatures'}{'powercycle'}{'min'}, $devices->{$device}{'temperatures'}{'powercycle'}{'max'}) 
+            = ($line =~ /.*:\s+([-0-9]+)\/(([-0-9]+)).*/g)[0..1]; } # 29/37 Celsius
+      if($line =~ m(Lifetime    Min/Max Temperature)) 
+        { ($devices->{$device}{'temperatures'}{'lifetime'}{'min'}, $devices->{$device}{'temperatures'}{'lifetime'}{'max'}) 
+            = ($line =~ /.*:\s+([-0-9]+)\/(([-0-9]+)).*/g)[0..1]; } # 32/50 Celsius
+      if($line =~ m(Min/Max recommended Temperature))  
+        { ($devices->{$device}{'temperatures'}{'recommended'}{'min'}, $devices->{$device}{'temperatures'}{'recommended'}{'max'}) 
+            = ($line =~ /.*:\s+([-0-9]+)\/(([-0-9]+)).*/g)[0..1]; } # 0/60 Celsius
+      if($line =~ m(Min/Max Temperature Limit))  
+        { ($devices->{$device}{'temperatures'}{'limit'}{'min'}, $devices->{$device}{'temperatures'}{'limit'}{'max'}) 
+            = ($line =~ /.*:\s+([-0-9]+)\/(([-0-9]+)).*/g)[0..1]; } # -41/85 Celsius
+    }
+    elsif ($flag == 3)
+    {
+      if($line =~ m/Model Family/ ) { $devices->{$device}{'info'}{'name'  } = ($line =~ /.*:\s+(.*)/g)[0]; }
+      if($line =~ m/Device Model/ ) { $devices->{$device}{'info'}{'model' } = ($line =~ /.*:\s+(.*)/g)[0]; }
+      if($line =~ m/Serial Number/) { $devices->{$device}{'info'}{'serial'} = ($line =~ /.*:\s+(.*)/g)[0]; }
+    }
+  }
+  # post-read calculations
+  # information
+  $devices->{$device}{'munin'}{'fieldname'} = fieldname_clean($devices->{$device}{'info'}{'model'}.$devices->{$device}{'info'}{'serial'});
+  $devices->{$device}{'info'}{'name'} = 'Unknown device' if not defined($devices->{$device}{'info'}{'name'});
+  
+  # temperature
+  $devices->{$device}{'temperatures'}{'current'} = 
+     (defined($devices->{$device}{'attributes'}{'194'}) ? $devices->{$device}{'attributes'}{'194'}{'raw'} : 'NaN')
+        unless (defined($devices->{$device}{'temperatures'}{'current'}));
+    
+  # percent calculate
+  my ($c_pf, $c_oa, $p_oa_v, $p_oa_w, $p_pf_v, $p_pf_w, $p_v, $p_w, $p_t) = (0,0,0,0,0,0,0,0,0);
+    
+  for my $id (sort keys %{$devices->{$device}{'attributes'}})
+  {
+    my $type = $devices->{$device}{'attributes'}{$id}{'type'};
+    if ($type eq 'Old_age')
+    {
+      $p_oa_v = $p_oa_v + $devices->{$device}{'attributes'}{$id}{'value_%'};
+      $p_oa_w = $p_oa_w + $devices->{$device}{'attributes'}{$id}{'worst_%'};
+      $c_oa++;
+    }
+    elsif ($type eq 'Pre-fail')
+    {
+      $p_pf_v = $p_pf_v + $devices->{$device}{'attributes'}{$id}{'value_%'};
+      $p_pf_w = $p_pf_w + $devices->{$device}{'attributes'}{$id}{'worst_%'};
+      $c_pf++;
+    }
+    #else {print Dumper $devices->{$device}{'attributes'};}
+      
+  }
+  $p_oa_v = $p_oa_v / $c_oa;
+  $p_oa_w = $p_oa_w / $c_oa;
+  $p_pf_v = $p_pf_v / $c_pf;
+  $p_pf_w = $p_pf_w / $c_pf;
+  my $k = 1.5;
+  $p_w = ($p_oa_w+($p_pf_w*$k))/2; 
+  $p_v = ($p_oa_v+($p_pf_v*$k))/2; 
+  $p_w = 0 if $p_w < 0;
+  $p_v = 0 if $p_v < 0;
+  $p_oa_v = 0 if $p_oa_v < 0;
+  $p_oa_w = 0 if $p_oa_w < 0;
+  $p_pf_v = 0 if $p_pf_v < 0;
+  $p_pf_w = 0 if $p_pf_w < 0;
+  $p_t = ($p_v+$p_w)/2;
+
+  $devices->{$device}{'percents'}{'Old age value'} = $p_oa_v;
+  $devices->{$device}{'percents'}{'Old age worst'} = $p_oa_w;
+  $devices->{$device}{'percents'}{'Pre-fail value'} = $p_pf_v;
+  $devices->{$device}{'percents'}{'Pre-fail worst'} = $p_pf_w;
+  $devices->{$device}{'percents'}{'value'} = $p_v;
+  $devices->{$device}{'percents'}{'worst'} = $p_w;
+  $devices->{$device}{'percents'}{'total'} = $p_t;
+}
+
+sub calculate_attribute
+{
+    my ($id, $value, $worst, $tresh, $raw, $type) = @_[0..5];
+    my $value_percent = $tresh/($value/100);
+    my $worst_percent = $tresh/($worst/100);
+    $value_percent = 0 if $value_percent < 0;
+    $worst_percent = 0 if $worst_percent < 0;
+    if(exists($attributes->{$id}) and $attributes->{$id}[0] < 0)
+    {
+      $value_percent = 100 - $value_percent;
+      $worst_percent = 100 - $worst_percent;
+    }
+    $raw = ($raw =~ /([-0-9]+)/g)[0];
+    return 
+    {
+      'value'   => $value        +0.0,
+      'worst'   => $worst        +0.0,
+      'tresh'   => $tresh        +0.0,
+      'raw'     => $raw          +0.0,
+      'value_%' => $value_percent+0.0,
+      'worst_%' => $worst_percent+0.0,
+      'type'    => $type
+    };
+}
+
+sub trim
+{
+  my    ($string) = @_;
+  for   ($string) { s/^\s+//; s/\s+$//; }
+  return $string;
+}
+
+sub fieldname_clean
+{
+  my $name = $_[0];
+  $name = lc(clean_fieldname($name));
+  $name =~ s/_//ig;
+  return $name;
+}
+
+sub device_info
+{
+  my $device = $_[0];
+  return $devices->{$device}{'info'}{'name'};
+}
+
+sub device_label
+{
+  my $device = $_[0];
+  return sprintf("%s [%s]", $devices->{$device}{'info'}{'model'}, $devices->{$device}{'info'}{'serial'});
+}
+
+sub construct_field
+{
+  my ($draw, $type, $info, $label) = @_[0..3];
+  return
+  {
+    'draw'  => $draw,
+    'type'  => $type,
+    'info'  => $info,
+    'label' => $label
+  };
+}
+
+sub construct_graph
+{
+  my ($args, $category, $title, $vtitle, $info) = @_[0..4];
+  return
+  {
+    'args'     => $args,
+    'category' => $category,
+    'info'     => $info,
+    'title'    => $title,
+    'vtitle'   => $vtitle,
+    'order'    => ''
+  };
+}
+
+sub attribute_label
+{
+  my ($device, $aid) = @_[0..1];
+  return ($devices->{$device}{'attributes'}{$aid}{'type'} eq 'Pre-fail' ? '! ' : '  ').device_label($device);
+}
+
+sub config
+{
+  my $config = {};
+  # top, percents
+  $config->{'smart_attributes'}       {'munin'} = construct_graph('--base 1000 -r --lower-limit 0 --upper-limit 100', 's.m.a.r.t.', 'This graph shows average s.m.a.r.t.', 'Percents', 'Estimated reliability of hard drives');
+  $config->{'smart_attributes.return'}{'munin'} = construct_graph('--base 1000', 'smartctl', 'smartctl return value', 'Value', 'This graph shows smartctl return value.');
+  $config->{'smart_temperatures'}     {'munin'} = construct_graph('--base 1000', 's.m.a.r.t.', 'Disks temperatures', 'Celsius', 'This graph shows disks temperatures from s.m.a.r.t.');
+ 
+
+  my ($graph_name, $device_fieldname, $device_field);
+  for my $device (@sorted_devices)
+  {
+    $device_fieldname = $devices->{$device}{'munin'}{'fieldname'};
+    $device_field = construct_field('LINE1', 'GAUGE', device_info($device), device_label($device));
+
+    # ---------------------------- temperatures
+    $config->{'smart_temperatures'}{'fields'}{$device_fieldname} = $device_field;
+    $config->{'smart_temperatures'}{'munin'}{'order'} .= $device_fieldname. " ";
+    $graph_name = 'smart_temperatures.'.$device_fieldname;
+    $config->{$graph_name}{'munin'} = construct_graph('--base 1000', 'temperature', device_label($device), 'Celsius', 'This graph shows temperatures for '.device_info($device) );
+    $config->{$graph_name}{'munin'}{'order'} = 'current';
+    $config->{$graph_name}{'fields'}{'current'} = construct_field('LINE1', 'GAUGE', 'Current temp', 'Current');
+    if(defined($devices->{$device}{'attributes'}{'190'}))
+    {
+      $config->{$graph_name}{'fields'}{'airflow'} = construct_field('LINE1', 'GAUGE', 'Current airflow temp', 'Airflow');
+      $config->{$graph_name}{'munin'}{'order'}   .= ' airflow';
+    }
+    for my $type ('Power cycle', 'Lifetime', 'Recommended', 'Limit')
+    {
+      my $fieldname_part = fieldname_clean($type);
+      if (defined($devices->{$device}{'temperatures'}{$fieldname_part}))
+      {
+        for my $mm (qw(min max))
+        {
+          my $fieldname = $mm.$fieldname_part;
+          $config->{$graph_name}{'fields'}{$fieldname} = construct_field('LINE1', 'GAUGE', sprintf('%s %s. temperature', $type, $mm), sprintf('%s %s.', $type, $mm));
+          $config->{$graph_name}{'munin'}{'order'} .= ' '.$fieldname;
+        }
+      }
+    }
+    if (defined($devices->{$device}{'temperatures'}{'recommended'}))
+    {
+      $config->{$graph_name}{'fields'}{'current'}{'warning'} = 
+             $devices->{$device}{'temperatures'}{'recommended'}{'min'}.':'.$devices->{$device}{'temperatures'}{'recommended'}{'max'};
+    }
+    if (defined($devices->{$device}{'temperatures'}{'limit'}))
+    {
+      $config->{$graph_name}{'fields'}{'current'}{'critical'} = 
+             $devices->{$device}{'temperatures'}{'limit'}{'min'}.':'.$devices->{$device}{'temperatures'}{'limit'}{'max'};
+    }
+    # ---------------------------- temperatures
+    
+    $config->{'smart_attributes'}{'fields'}{$device_fieldname} = $device_field;
+    $config->{'smart_attributes'}{'munin'}{'order'} .= $device_fieldname. " ";
+    $config->{'smart_attributes.return'}{'fields'}{$device_fieldname} = $device_field;
+    $config->{'smart_attributes.return'}{'munin'}{'order'} .= $device_fieldname. " ";
+    # ------------------------------ percents
+    for my $vtype ('value', 'worst', 'Pre-fail value', 'Pre-fail worst', 'Old age value', 'Old age worst')
+    {
+      $graph_name = 'smart_attributes.percents_'.fieldname_clean($vtype);
+      unless (exists($config->{$graph_name}))
+      {
+        $config->{$graph_name}{'munin'} = construct_graph('--base 1000 -r --lower-limit 0 --upper-limit 100', 'percents', $vtype.' percents', '%', 'This graph shows percents of '.$vtype);
+      }
+      $config->{$graph_name}{'fields'}{$device_fieldname} = $device_field;
+      $config->{$graph_name}{'munin'}{'order'} .= $device_fieldname." "; 
+    }
+    # ------------------------------ percents
+    
+    for my $aid (sort keys %{$devices->{$device}{'attributes'}})
+    {
+      $graph_name = 'smart_attributes.normalized'.$aid;
+      unless (exists($config->{$graph_name}))
+      {
+        $config->{$graph_name}{'munin'} = construct_graph('--base 1000', 'normalized', $attributes->{$aid}[1], 'Value', '[Normalized] '.$attributes->{$aid}[2]);
+      }
+      $config->{$graph_name}{'fields'}{$device_fieldname.'curr'}   = construct_field('LINE1', 'GAUGE', 'Current attribute value for '.device_info($device), attribute_label($device, $aid).' value');
+      $config->{$graph_name}{'fields'}{$device_fieldname.'curr'}{'critical'} = $devices->{$device}{'attributes'}{$aid}{'tresh'}.':';
+      $config->{$graph_name}{'fields'}{$device_fieldname.'worst'}  = construct_field('LINE1', 'GAUGE', 'Worst attribute value for '.device_info($device), attribute_label($device, $aid).' worst');
+      $config->{$graph_name}{'munin'}{'order'} .= $device_fieldname.'curr '.$device_fieldname.'worst ';
+     
+      $graph_name = 'smart_attributes.raw'.$aid;
+      unless (exists($config->{$graph_name}))
+      {
+        $config->{$graph_name}{'munin'} = construct_graph('--base 1000', 'raw', $attributes->{$aid}[1], 'Value', '[Raw] '.$attributes->{$aid}[2]);
+      }
+      $config->{$graph_name}{'fields'}{$device_fieldname}   = construct_field('LINE1', 'GAUGE', 'Current raw attribute value for '.device_info($device), attribute_label($device, $aid));
+      $config->{$graph_name}{'munin'}{'order'} .= $device_fieldname;
+    } 
+  }
+
+  for my $graph (sort keys %{$config})
+  {
+    printf("multigraph %s\n", $graph);
+    for my $munin (sort keys %{$config->{$graph}{'munin'}})
+    {
+      printf("graph_%s %s\n", $munin, $config->{$graph}{'munin'}{$munin});
+    }
+    for my $field (sort keys %{$config->{$graph}{'fields'}})
+    {
+      for my $munin (sort keys %{$config->{$graph}{'fields'}{$field}})
+      {
+        printf("%s.%s %s\n", $field, $munin, $config->{$graph}{'fields'}{$field}{$munin});
+      }
+    }
+    print "\n";
+  }
+}
+
+sub data
+{
+  my ($device_fieldname, $graph_name);
+  my $config = {};
+
+  for my $device (@sorted_devices)
+  {
+    $device_fieldname = $devices->{$device}{'munin'}{'fieldname'};
+    $config->{'smart_attributes'}{$device_fieldname} = $devices->{$device}{'percents'}{'total'};
+    for my $type ('value', 'worst', 'Pre-fail value', 'Pre-fail worst', 'Old age value', 'Old age worst')
+    {
+      $config->{'smart_attributes.percents_'.fieldname_clean($type)}{$device_fieldname} = $devices->{$device}{'percents'}{$type};
+    }
+    $config->{'smart_attributes.return'}{$device_fieldname} = $devices->{$device}{'smartctl_return'};
+    # ---------------------------- temperatures
+    $config->{'smart_temperatures'}{$device_fieldname} = $devices->{$device}{'temperatures'}{'current'};
+    $graph_name = 'smart_temperatures.'.$device_fieldname;
+    $config->{$graph_name}{'current'} = $devices->{$device}{'temperatures'}{'current'};
+    if (defined($devices->{$device}{'attributes'}{'190'}))
+    {
+      $config->{$graph_name}{'airflow'} = $devices->{$device}{'attributes'}{'190'}{'raw'};
+    }
+    for my $type ('Power cycle', 'Lifetime', 'Recommended', 'Limit')
+    {
+      my $fieldname_part = fieldname_clean($type);
+      if (defined($devices->{$device}{'temperatures'}{$fieldname_part}))
+      {
+        for my $mm (qw(min max))
+        {
+          my $fieldname = $mm.$fieldname_part;
+          $config->{$graph_name}{$fieldname} = $devices->{$device}{'temperatures'}{$fieldname_part}{$mm};
+        }
+      }
+    }
+    # ---------------------------- temperatures
+    for my $aid (sort keys %{$devices->{$device}{'attributes'}})
+    {
+      $graph_name = 'smart_attributes.normalized'.$aid;
+      $config->{$graph_name}{$device_fieldname.'curr'} = $devices->{$device}{'attributes'}{$aid}{'value'};
+      $config->{$graph_name}{$device_fieldname.'worst'} = $devices->{$device}{'attributes'}{$aid}{'worst'};
+      $config->{'smart_attributes.raw'.$aid}{$device_fieldname} = $devices->{$device}{'attributes'}{$aid}{'raw'};
+    }
+  }
+
+  for my $graph (sort keys %{$config})
+  {
+    printf("multigraph %s\n", $graph);
+    for my $field (sort keys %{$config->{$graph}})
+    {
+      printf("%s.value %s\n", $field, $config->{$graph}{$field});
+    }
+    print "\n";
+  }
+}
+
+need_multigraph();
+scan_devices();
+
+if($ARGV[0] and $ARGV[0] eq "config") 
+{
+  config();
+  exit 0;
+}
+
+#print Dumper($devices);
+data();
+
+__END__
